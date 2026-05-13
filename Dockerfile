@@ -1,1 +1,1 @@
-FROM itzg/minecraft-server:java21-debian
+FROM itzg/minecraft-server:2024.4.0-java21
