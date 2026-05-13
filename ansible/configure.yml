@@ -1,0 +1,101 @@
+---
+- name: Configure Minecraft Server on EC2
+  hosts: server
+  become: true
+  vars:
+    # REPLACE these with your actual values from Terraform outputs
+    ecr_repo_url: "551998408663.dkr.ecr.us-east-1.amazonaws.com/cs312-minecraft-ecr"
+    image_tag: "1.21.1"
+    s3_bucket: "piperga-minecraft"
+    minecraft_dir: "/opt/minecraft"
+
+  tasks:
+    ## 1. DOCKER INSTALLATION (From your lab example)
+    - name: Install Docker prerequisites
+      apt:
+        name: [ca-certificates, curl, gnupg, awscli] # Added awscli here
+        state: present
+        update_cache: true
+
+    - name: Add Docker GPG key
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      args:
+        creates: /etc/apt/keyrings/docker.asc
+
+    - name: Add Docker apt repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Install Docker Engine and Compose Plugin
+      apt:
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create Minecraft directory
+      file:
+        path: "{{ minecraft_dir }}/data"
+        state: directory
+        mode: "0755"
+
+    - name: Restore world data from S3 (Recovery Step)
+      # Idempotent: aws s3 sync only downloads changed/new files
+      command: "aws s3 sync s3://{{ s3_bucket }} {{ minecraft_dir }}/data"
+      changed_when: false
+
+    - name: Authenticate to ECR
+      # Uses the LabInstanceProfile
+      shell: "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin {{ ecr_repo_url }}"
+      changed_when: false
+
+    - name: Write Docker Compose file
+      # This replaces the WordPress compose with the itzg/minecraft config
+      copy:
+        dest: "{{ minecraft_dir }}/docker-compose.yml"
+        content: |
+          services:
+            minecraft:
+              image: {{ ecr_repo_url }}:{{ image_tag }}
+              restart: always
+              ports:
+                - "25565:25565"
+              environment:
+                EULA: "TRUE"
+                TYPE: "VANILLA"
+                MEMORY: "6G"
+                VERSION: "1.21.1"
+              volumes:
+                - ./data:/data
+
+    - name: Set ownership of Minecraft data directory
+      file:
+        path: "{{ minecraft_dir }}/data"
+        owner: "1000"
+        group: "1000"
+        recurse: yes
+
+    - name: Set MOTD
+      lineinfile:
+        path: "{{ minecraft_dir }}/data/server.properties"
+        regexp: '^motd='
+        line: 'motd=Piperga-934433417'
+
+    - name: Start Minecraft Server
+      community.docker.docker_compose_v2:
+        project_src: "{{ minecraft_dir }}"
+        state: present
+
+    - name: Backup current world data to S3
+      command: "aws s3 sync {{ minecraft_dir }}/data s3://{{ s3_bucket }}"
+      
