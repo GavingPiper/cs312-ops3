@@ -30,6 +30,28 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Build and Smoke Test
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: 1.21.1  # Note: Use the version that matches your Java!
+        run: |
+          # 1. Build
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          
+          # 2. Smoke Test: Start the container
+          docker run -d --name smoke-test -e EULA=TRUE $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          
+          # 3. Wait and Check: Give it time to attempt a startup
+          sleep 30
+          if [ "$(docker inspect -f '{{.State.Running}}' smoke-test)" == "false" ]; then
+            echo "SMOKE TEST FAILED: Container crashed on startup!"
+            docker logs smoke-test
+            exit 1
+          fi
+          
+          echo "SMOKE TEST PASSED: Container is stable."
+          docker stop smoke-test && docker rm smoke-test
+
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
