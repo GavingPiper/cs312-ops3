@@ -1,1 +1,1 @@
-FROM itzg/minecraft-server:2025.5.0-java22
+FROM itzg/minecraft-server:2024.4.0-java21
