@@ -33,7 +33,7 @@ jobs:
       - name: Build and Smoke Test
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: 1.21.1  # Note: Use the version that matches your Java!
+          IMAGE_TAG: 1.21.2  # Note: Use the version that matches your Java!
         run: |
           # 1. Build
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
